@@ -5,3 +5,4 @@ __pycache__/
 state/
 results/
 .codebuddy/
+portfolio.json
