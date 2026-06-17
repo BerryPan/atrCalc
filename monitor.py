@@ -162,10 +162,12 @@ def process_stock(stock_cfg: dict, alert_threshold: float, total_asset: float,
     # 1) 入场ATR（锁定）
     entry_atr = calc_entry_atr(bars, first_buy_date)
 
-    # 2) 加权成本
+    # 2) 加权成本（用于止损止盈计算）+ 净投入（用于浮盈计算）
     total_shares = sum(t["shares"] for t in trades)
     total_cost = sum(t["price"] * t["shares"] for t in trades)
     avg_cost = total_cost / total_shares
+    # net_invested: 建仓周期内总买入-总卖出（清仓重建仓后只算当前周期）
+    net_invested = stock_cfg.get("net_invested", total_cost)
 
     # 3) 当前ATR（每日刷新）
     current_atr = calc_current_atr(bars, kline_date)
@@ -183,7 +185,7 @@ def process_stock(stock_cfg: dict, alert_threshold: float, total_asset: float,
     pl = calc_position_limit(entry_atr)
 
     cur_value = price * total_shares
-    pnl = cur_value - total_cost
+    pnl = cur_value - net_invested  # 浮盈=市值-净投入（含已卖出回笼）
     max_amount = total_asset * pl["position_limit_pct"] / 100
     position_ok = cur_value <= max_amount
 
@@ -196,13 +198,13 @@ def process_stock(stock_cfg: dict, alert_threshold: float, total_asset: float,
     print(f"\n  📌 {name} {code}")
     print(f"     数据日期: {kline_date}  |  实时价: {price:.2f}")
     print(f"     入场ATR: {entry_atr*100:.2f}% (锁定)  |  当前ATR: {current_atr*100:.2f}%")
-    print(f"     加权成本: {avg_cost:.2f} ({total_shares}股, ¥{total_cost:,.0f})")
+    print(f"     加权成本: {avg_cost:.2f} ({total_shares}股, 净投入¥{net_invested:,.0f})")
     print(f"     🔴止损: {sl['trigger_price']:.2f} ({dist_sl:+.1f}%)  "
           f"🟡止盈①: {tp1['trigger_price']:.2f} ({dist_tp1:+.1f}%)  "
           f"🔻止盈②: {tp2['trigger_price']:.2f} ({dist_tp2:+.1f}%)")
     print(f"     📦仓位: {pl['position_limit_pct']}% (上限¥{max_amount:,.0f}) "
           f"| 当前¥{cur_value:,.0f} {'✅' if position_ok else '❌超标'}")
-    print(f"     💵浮盈: ¥{pnl:,.0f} ({pnl/total_cost*100:+.1f}%)")
+    print(f"     💵浮盈: ¥{pnl:,.0f} ({pnl/net_invested*100:+.1f}%)")
     if state["tp1_triggered"]:
         print(f"     ⚠️ 止盈①已触发，监控止盈②")
 
@@ -269,7 +271,7 @@ def process_stock(stock_cfg: dict, alert_threshold: float, total_asset: float,
                 f"🔴 止损：**{sl['trigger_price']:.2f}**（{dist_sl:+.1f}%）\n"
                 f"🟡 止盈①：**{tp1['trigger_price']:.2f}**（{dist_tp1:+.1f}%）\n"
                 f"🔻 止盈②：**{tp2['trigger_price']:.2f}**（峰值{effective_peak:.2f}）\n\n"
-                f"浮盈：**¥{pnl:,.0f}**（{pnl/total_cost*100:+.1f}%）"
+                f"浮盈：**¥{pnl:,.0f}**（{pnl/net_invested*100:+.1f}%）"
             ),
             color="blue",
         )
@@ -290,6 +292,7 @@ def process_stock(stock_cfg: dict, alert_threshold: float, total_asset: float,
         "total_shares": total_shares,
         "avg_cost": round(avg_cost, 4),
         "total_cost": round(total_cost, 2),
+        "net_invested": round(net_invested, 2),
         "entry_atr_pct": round(entry_atr * 100, 2),
         "current_atr_pct": round(current_atr * 100, 2),
         "stop_loss": {
@@ -312,7 +315,7 @@ def process_stock(stock_cfg: dict, alert_threshold: float, total_asset: float,
         "current_value": round(cur_value, 2),
         "position_ok": position_ok,
         "pnl": round(pnl, 2),
-        "pnl_pct": round(pnl / total_cost * 100, 1),
+        "pnl_pct": round(pnl / net_invested * 100, 1),
         "tp1_triggered": state["tp1_triggered"],
         "alerts": alerts,
     }
@@ -348,7 +351,7 @@ def main():
             all_results.append(result)
             total_pnl += result["pnl"]
             total_value += result["current_value"]
-            total_invested += result["total_cost"]
+            total_invested += result["net_invested"]
             if result["alerts"]:
                 has_alert = True
 
