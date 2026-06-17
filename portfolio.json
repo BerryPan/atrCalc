@@ -1,0 +1,48 @@
+{
+  "total_asset": 500000,
+  "alert_threshold": 0.03,
+  "stocks": [
+    {
+      "code": "sh600378",
+      "name": "昊华科技",
+      "first_buy_date": "2026-06-16",
+      "trades": [
+        {"date": "2026-06-16", "price": 58.80, "shares": 200}
+      ]
+    },
+    {
+      "code": "sh605358",
+      "name": "立昂微",
+      "first_buy_date": "2026-06-11",
+      "trades": [
+        {"date": "2026-06-11", "price": 69.70, "shares": 200}
+      ]
+    },
+    {
+      "code": "sz000657",
+      "name": "中钨高新",
+      "first_buy_date": "2026-06-01",
+      "trades": [
+        {"date": "2026-06-01", "price": 65.80, "shares": 200},
+        {"date": "2026-06-17", "price": 88.51, "shares": 200}
+      ]
+    },
+    {
+      "code": "sh600111",
+      "name": "北方稀土",
+      "first_buy_date": "2026-06-08",
+      "trades": [
+        {"date": "2026-06-08", "price": 47.00, "shares": 400}
+      ]
+    },
+    {
+      "code": "sh600089",
+      "name": "特变电工",
+      "first_buy_date": "2026-06-01",
+      "trades": [
+        {"date": "2026-06-01", "price": 26.41, "shares": 400},
+        {"date": "2026-06-08", "price": 24.31, "shares": 600}
+      ]
+    }
+  ]
+}
