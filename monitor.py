@@ -139,8 +139,8 @@ def save_daily_result(result: dict):
 # ══════════════════ 单股票处理 ══════════════════
 
 def process_stock(stock_cfg: dict, alert_threshold: float, total_asset: float,
-                  now: datetime) -> Optional[dict]:
-    """处理单只股票，返回计算结果字典"""
+                  now: datetime, skip_alerts: bool = False) -> Optional[dict]:
+    """处理单只股票，返回计算结果字典。skip_alerts=True 时跳过飞书推送（用于盘前报告）。"""
     code = stock_cfg["code"]
     name = stock_cfg["name"]
     first_buy_date = stock_cfg["first_buy_date"]
@@ -219,12 +219,12 @@ def process_stock(stock_cfg: dict, alert_threshold: float, total_asset: float,
     # 止损
     if price <= sl["trigger_price"]:
         alerts.append(f"🔴🔴🔴 {stock_label} 止损触发！{price:.2f} ≤ {sl['trigger_price']:.2f}")
-        if state["last_fs_sl"] != minute_key:
+        if not skip_alerts and state["last_fs_sl"] != minute_key:
             feishu.send_stop_loss_alert(price, sl['trigger_price'], avg_cost, stock_label)
             state["last_fs_sl"] = minute_key
     elif price <= sl["trigger_price"] * (1 + alert_threshold):
         alerts.append(f"🔴 {stock_label} 止损预警 (仅剩{dist_sl:.1f}%)")
-        if state["last_fs_sl"] != hour_key:
+        if not skip_alerts and state["last_fs_sl"] != hour_key:
             feishu.send_stop_loss_alert(price, sl['trigger_price'], avg_cost, stock_label)
             state["last_fs_sl"] = hour_key
 
@@ -233,11 +233,12 @@ def process_stock(stock_cfg: dict, alert_threshold: float, total_asset: float,
         if price >= tp1["trigger_price"]:
             alerts.append(f"🟡🟡🟡 {stock_label} 止盈①触发！减仓50%")
             state["tp1_triggered"] = True
-            feishu.send_tp1_alert(price, tp1['trigger_price'], avg_cost, stock_label)
+            if not skip_alerts:
+                feishu.send_tp1_alert(price, tp1['trigger_price'], avg_cost, stock_label)
             state["last_fs_tp1"] = minute_key
         elif price >= tp1["trigger_price"] * (1 - alert_threshold):
             alerts.append(f"🟡 {stock_label} 止盈①预警 (还差{dist_tp1:.1f}%)")
-            if state["last_fs_tp1"] != hour_key:
+            if not skip_alerts and state["last_fs_tp1"] != hour_key:
                 feishu.send_tp1_alert(price, tp1['trigger_price'], avg_cost, stock_label)
                 state["last_fs_tp1"] = hour_key
 
@@ -245,12 +246,12 @@ def process_stock(stock_cfg: dict, alert_threshold: float, total_asset: float,
     if state["tp1_triggered"]:
         if price <= tp2["trigger_price"]:
             alerts.append(f"🔻🔻🔻 {stock_label} 止盈②触发！余仓清仓")
-            if state["last_fs_tp2"] != minute_key:
+            if not skip_alerts and state["last_fs_tp2"] != minute_key:
                 feishu.send_tp2_alert(price, tp2['trigger_price'], effective_peak, stock_label)
                 state["last_fs_tp2"] = minute_key
         elif price <= tp2["trigger_price"] * (1 + alert_threshold):
             alerts.append(f"🔻 {stock_label} 止盈②预警 (仅剩{dist_tp2:.1f}%)")
-            if state["last_fs_tp2"] != hour_key:
+            if not skip_alerts and state["last_fs_tp2"] != hour_key:
                 feishu.send_tp2_alert(price, tp2['trigger_price'], effective_peak, stock_label)
                 state["last_fs_tp2"] = hour_key
 
@@ -262,7 +263,7 @@ def process_stock(stock_cfg: dict, alert_threshold: float, total_asset: float,
 
     # 每日状态推送（无告警时，每只股票每天推一次）
     today_key = now.strftime("%Y-%m-%d")
-    if not alerts and state.get("last_fs_status") != today_key:
+    if not skip_alerts and not alerts and state.get("last_fs_status") != today_key:
         card = feishu._build_card(
             title=f"📊 {name} 盘中状态",
             content=(
@@ -323,6 +324,74 @@ def process_stock(stock_cfg: dict, alert_threshold: float, total_asset: float,
     }
 
 
+# ══════════════════ 盘前全量推送 ══════════════════
+
+def send_morning_report(stocks: list, total_asset: float, alert_threshold: float, now: datetime):
+    """每日9点盘前全量推送止损止盈报告"""
+    all_results = []
+    total_pnl = 0
+    total_value = 0
+    total_invested = 0
+
+    print(f"\n{'='*60}")
+    print(f" 📋 盘前全量报告  {now.strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"{'='*60}")
+
+    for stock_cfg in stocks:
+        # 盘前不需要触发告警，skip_alerts=True 跳过推送
+        result = process_stock(stock_cfg, alert_threshold, total_asset, now, skip_alerts=True)
+        if result:
+            all_results.append(result)
+            total_pnl += result["pnl"]
+            total_value += result["current_value"]
+            total_invested += result["net_invested"]
+
+    # 构造飞书卡片
+    lines = []
+    for r in all_results:
+        sl = r["stop_loss"]
+        tp1 = r["take_profit_1"]
+        tp2 = r["take_profit_2"]
+        pnl_str = f"+¥{r['pnl']:,.0f}" if r["pnl"] >= 0 else f"-¥{abs(r['pnl']):,.0f}"
+        pos_str = "✅" if r["position_ok"] else "❌超标"
+
+        lines.append(
+            f"**{r['name']}** {r['code']}\n"
+            f"  现价 {r['price']:.2f} | 成本 {r['avg_cost']:.2f} | {pnl_str}（{r['pnl_pct']:+.1f}%）\n"
+            f"  🔴止损 {sl['trigger_price']:.2f}（{sl['distance_pct']:+.1f}%）\n"
+            f"  🟡止盈① {tp1['trigger_price']:.2f}（{tp1['distance_pct']:+.1f}%）\n"
+            f"  🔻止盈② {tp2['trigger_price']:.2f}（峰值{tp2['peak_high']:.2f}）\n"
+            f"  📦仓位 {r['position_limit_pct']}% | 当前¥{r['current_value']:,.0f} {pos_str}\n"
+        )
+
+    summary = (
+        f"📊 组合汇总\n"
+        f"总投入 ¥{total_invested:,.0f} | 市值 ¥{total_value:,.0f} | "
+        f"浮盈 {'+' if total_pnl>=0 else ''}¥{total_pnl:,.0f}（{total_pnl/total_invested*100:+.1f}%）\n"
+        f"仓位 {total_value/total_asset*100:.1f}%\n"
+    )
+
+    # 飞书卡片内容有长度限制，分批推送
+    batch = []
+    batch_len = 0
+    for i, line in enumerate(lines):
+        batch.append(line)
+        batch_len += len(line)
+        # 每批约3-4只股票
+        if len(batch) >= 3 or i == len(lines) - 1:
+            card = feishu._build_card(
+                title=f"📋 盘前止损止盈报告 ({len(all_results)}只) - {now.strftime('%m-%d')}",
+                content="".join(batch) + ("\n---\n" + summary if i == len(lines) - 1 else ""),
+                color="blue",
+            )
+            feishu._send(card)
+            batch = []
+            batch_len = 0
+
+    print(f"\n  📊 汇总: 投入¥{total_invested:,.0f} | 市值¥{total_value:,.0f} | 浮盈{'+' if total_pnl>=0 else ''}¥{total_pnl:,.0f} ({total_pnl/total_invested*100:+.1f}%)")
+    print(f"  📁 飞书已推送盘前报告\n")
+
+
 # ══════════════════ 主入口 ══════════════════
 
 def main():
@@ -331,6 +400,21 @@ def main():
     total_asset = portfolio["total_asset"]
     alert_threshold = portfolio.get("alert_threshold", 0.03)
     stocks = portfolio["stocks"]
+
+    # 每日9:00盘前全量推送（9:00-9:25之间触发一次）
+    today_key = now.strftime("%Y-%m-%d")
+    state_path = os.path.join(STATE_DIR, "_global.json")
+    global_state = {}
+    if os.path.exists(state_path):
+        with open(state_path) as f:
+            global_state = json.load(f)
+
+    if now.weekday() < 5 and 9 * 60 <= now.hour * 60 + now.minute <= 9 * 60 + 25:
+        if global_state.get("last_morning_report") != today_key:
+            send_morning_report(stocks, total_asset, alert_threshold, now)
+            global_state["last_morning_report"] = today_key
+            with open(state_path, "w") as f:
+                json.dump(global_state, f, indent=2, ensure_ascii=False)
 
     print(f"\n{'='*60}")
     print(f" ATR止损止盈 盘中监控  {now.strftime('%Y-%m-%d %H:%M:%S')}")
