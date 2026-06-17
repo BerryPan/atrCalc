@@ -57,7 +57,7 @@ def is_trading_time() -> bool:
     return (9 * 60 + 30 <= t <= 11 * 60 + 30) or (13 * 60 <= t <= 15 * 60)
 
 
-def fetch_kline(code: str, limit: int = 40) -> list[DailyBar]:
+def fetch_kline(code: str, limit: int = 100) -> list[DailyBar]:
     cmd = [NODE_BIN, WESTOK_SCRIPT, "kline", code, "--period", "day", "--limit", str(limit)]
     out = subprocess.check_output(cmd, text=True, timeout=30)
     bars = []
@@ -147,7 +147,7 @@ def process_stock(stock_cfg: dict, alert_threshold: float, total_asset: float,
     trades = stock_cfg["trades"]
 
     try:
-        bars = fetch_kline(code, 40)
+        bars = fetch_kline(code, 100)
         price = fetch_realtime_price(code)
     except Exception as e:
         log_alert(f"❌ {name} {code} 数据获取失败: {e}")
