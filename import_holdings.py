@@ -95,7 +95,8 @@ def main():
             continue
         
         total_shares = sum(r["shares"] for r in remaining)
-        first_buy_date = min(r["date"] for r in remaining)
+        # 入场ATR的"买入日" = 建仓周期首笔买入日期（非FIFO剩余批次最早日期）
+        first_buy_date = format_date(cycle_trades[0]["date"])
         
         # 计算建仓周期内的总买入和总卖出（用于浮盈计算）
         total_buy = sum(t["amount"] for t in cycle_trades if t["op"] == "BUY")

@@ -176,16 +176,18 @@ def process_stock(stock_cfg: dict, alert_threshold: float, total_asset: float,
     sl = calc_stop_loss(entry_atr, avg_cost)
     tp1 = calc_take_profit_stage1(avg_cost, current_atr)
 
-    # 5) 状态 & 峰值
+    # 5) 状态 & 峰值（仅在止盈①触发后才开始跟踪峰值）
     state = load_state(code)
-    if price > state["peak_high"]:
-        state["peak_high"] = price
-    effective_peak = max(state["peak_high"], price)
+    if state["tp1_triggered"]:
+        if price > state["peak_high"]:
+            state["peak_high"] = price
+    effective_peak = max(state["peak_high"], price) if state["tp1_triggered"] else price
     tp2 = calc_take_profit_stage2(effective_peak, current_atr)
     pl = calc_position_limit(entry_atr)
 
     cur_value = price * total_shares
     pnl = cur_value - net_invested  # 浮盈=市值-净投入（含已卖出回笼）
+    pnl_pct = pnl / net_invested * 100 if net_invested > 0 else 0.0
     max_amount = total_asset * pl["position_limit_pct"] / 100
     position_ok = cur_value <= max_amount
 
@@ -204,7 +206,7 @@ def process_stock(stock_cfg: dict, alert_threshold: float, total_asset: float,
           f"🔻止盈②: {tp2['trigger_price']:.2f} ({dist_tp2:+.1f}%)")
     print(f"     📦仓位: {pl['position_limit_pct']}% (上限¥{max_amount:,.0f}) "
           f"| 当前¥{cur_value:,.0f} {'✅' if position_ok else '❌超标'}")
-    print(f"     💵浮盈: ¥{pnl:,.0f} ({pnl/net_invested*100:+.1f}%)")
+    print(f"     💵浮盈: ¥{pnl:,.0f} ({pnl_pct:+.1f}%)")
     if state["tp1_triggered"]:
         print(f"     ⚠️ 止盈①已触发，监控止盈②")
 
@@ -271,7 +273,7 @@ def process_stock(stock_cfg: dict, alert_threshold: float, total_asset: float,
                 f"🔴 止损：**{sl['trigger_price']:.2f}**（{dist_sl:+.1f}%）\n"
                 f"🟡 止盈①：**{tp1['trigger_price']:.2f}**（{dist_tp1:+.1f}%）\n"
                 f"🔻 止盈②：**{tp2['trigger_price']:.2f}**（峰值{effective_peak:.2f}）\n\n"
-                f"浮盈：**¥{pnl:,.0f}**（{pnl/net_invested*100:+.1f}%）"
+                f"浮盈：**¥{pnl:,.0f}**（{pnl_pct:+.1f}%）"
             ),
             color="blue",
         )
@@ -315,7 +317,7 @@ def process_stock(stock_cfg: dict, alert_threshold: float, total_asset: float,
         "current_value": round(cur_value, 2),
         "position_ok": position_ok,
         "pnl": round(pnl, 2),
-        "pnl_pct": round(pnl / net_invested * 100, 1),
+        "pnl_pct": round(pnl_pct, 1),
         "tp1_triggered": state["tp1_triggered"],
         "alerts": alerts,
     }
