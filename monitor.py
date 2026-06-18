@@ -213,15 +213,17 @@ def process_stock(stock_cfg: dict, alert_threshold: float, total_asset: float,
     # ── 触发判断 + 飞书推送 ──
     minute_key = now.strftime("%Y-%m-%d %H:%M")
     hour_key = now.strftime("%Y-%m-%d %H:00")
+    today_key = now.strftime("%Y-%m-%d")
     alerts = []
     stock_label = f"{name} {code}"
 
     # 止损
     if price <= sl["trigger_price"]:
         alerts.append(f"🔴🔴🔴 {stock_label} 止损触发！{price:.2f} ≤ {sl['trigger_price']:.2f}")
-        if not skip_alerts and state["last_fs_sl"] != minute_key:
+        # 已跌破止损线的股票每天只推送一次飞书
+        if not skip_alerts and state["last_fs_sl"] != today_key:
             feishu.send_stop_loss_alert(price, sl['trigger_price'], avg_cost, stock_label)
-            state["last_fs_sl"] = minute_key
+            state["last_fs_sl"] = today_key
     elif price <= sl["trigger_price"] * (1 + alert_threshold):
         alerts.append(f"🔴 {stock_label} 止损预警 (仅剩{dist_sl:.1f}%)")
         if not skip_alerts and state["last_fs_sl"] != hour_key:
@@ -262,7 +264,6 @@ def process_stock(stock_cfg: dict, alert_threshold: float, total_asset: float,
         print(f"     ✅ 安全")
 
     # 每日状态推送（无告警时，每只股票每天推一次）
-    today_key = now.strftime("%Y-%m-%d")
     if not skip_alerts and not alerts and state.get("last_fs_status") != today_key:
         card = feishu._build_card(
             title=f"📊 {name} 盘中状态",
