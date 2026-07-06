@@ -147,7 +147,7 @@ def process_stock(stock_cfg: dict, alert_threshold: float, total_asset: float,
     trades = stock_cfg["trades"]
 
     try:
-        bars = fetch_kline(code, 100)
+        bars = fetch_kline(code, 200)
         price = fetch_realtime_price(code)
     except Exception as e:
         log_alert(f"❌ {name} {code} 数据获取失败: {e}")
@@ -159,18 +159,21 @@ def process_stock(stock_cfg: dict, alert_threshold: float, total_asset: float,
 
     kline_date = bars[-1].date
 
-    # 1) 入场ATR（锁定）
-    entry_atr = calc_entry_atr(bars, first_buy_date)
+    try:
+        # 1) 入场ATR（锁定）
+        entry_atr = calc_entry_atr(bars, first_buy_date)
+        # 2) 当前ATR（每日刷新）
+        current_atr = calc_current_atr(bars, kline_date)
+    except Exception as e:
+        log_alert(f"❌ {name} {code} ATR计算失败: {e}")
+        return None
 
-    # 2) 加权成本（用于止损止盈计算）+ 净投入（用于浮盈计算）
+    # 3) 加权成本（用于止损止盈计算）+ 净投入（用于浮盈计算）
     total_shares = sum(t["shares"] for t in trades)
     total_cost = sum(t["price"] * t["shares"] for t in trades)
     avg_cost = total_cost / total_shares
     # net_invested: 建仓周期内总买入-总卖出（清仓重建仓后只算当前周期）
     net_invested = stock_cfg.get("net_invested", total_cost)
-
-    # 3) 当前ATR（每日刷新）
-    current_atr = calc_current_atr(bars, kline_date)
 
     # 4) 三线
     sl = calc_stop_loss(entry_atr, avg_cost)
